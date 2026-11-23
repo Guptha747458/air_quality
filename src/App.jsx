@@ -362,7 +362,7 @@ export default function App() {
   const aqiDetails = useMemo(() => getAqiDetails(aq?.aqi, profile.language), [aq?.aqi, profile.language]);
   const aqiDisplay = aq?.aqi == null ? (loading ? '…' : t.no_reading) : `${aq.aqi}`;
 
-  const adultsCount = Math.max(0, profile.householdSize - profile.children - profile.elderly - profile.respiratoryConditions);
+  const adultsCount = Math.max(0, profile.householdSize - profile.children - profile.elderly);
 
   const generate = async () => {
     if (!profile.location.trim()) return;
@@ -436,6 +436,30 @@ export default function App() {
   const activeMembers = selectedMemberId === 'all'
     ? members
     : members.filter((m) => m.id === selectedMemberId);
+
+  const groupedProtections = useMemo(() => {
+    if (!data?.overrides?.length) return [];
+    const map = new Map();
+    for (const entry of data.overrides) {
+      const id = entry.memberId || 'family';
+      if (!map.has(id)) {
+        const member = members.find((m) => m.id === id);
+        map.set(id, {
+          memberId: id,
+          memberName: member ? member.label : id,
+          role: member?.role || 'adult',
+          vulnerable: member?.vulnerable ?? true,
+          periods: [entry.period],
+        });
+      } else {
+        const existing = map.get(id);
+        if (!existing.periods.includes(entry.period)) {
+          existing.periods.push(entry.period);
+        }
+      }
+    }
+    return Array.from(map.values());
+  }, [data?.overrides, members]);
 
   return (
     <main>
@@ -596,12 +620,14 @@ export default function App() {
             </button>
           </div>
 
-          <div className="household-summary">
-            <span>Household Summary:</span>
-            <strong>{adultsCount} Adults</strong>
-            {profile.children > 0 && <span>· {profile.children} Children</span>}
-            {profile.elderly > 0 && <span>· {profile.elderly} Seniors</span>}
-            {profile.respiratoryConditions > 0 && <span>· {profile.respiratoryConditions} Respiratory Conditions</span>}
+          <div className="household-summary" role="status" aria-label="Household Composition Summary">
+            <span>Household:</span>
+            <strong>{adultsCount} {adultsCount === 1 ? 'Adult' : 'Adults'}</strong>
+            {profile.children > 0 && <span>· {profile.children} {profile.children === 1 ? 'Child' : 'Children'}</span>}
+            {profile.elderly > 0 && <span>· {profile.elderly} {profile.elderly === 1 ? 'Senior' : 'Seniors'}</span>}
+            {(profile.respiratoryConditions > 0 || profile.asthma) && (
+              <span>· 🩺 {profile.respiratoryConditions > 0 ? profile.respiratoryConditions : 1} with sensitive airways</span>
+            )}
           </div>
 
           <div className="toggle-row">
@@ -853,27 +879,26 @@ export default function App() {
               )}
             </section>
 
-            {data.overrides?.length > 0 && (
+            {groupedProtections.length > 0 && (
               <section className="card safety-log">
                 <div className="card-heading">
                   <div className="heading-icon peach"><Icon name="shield" /></div>
                   <div>
-                    <span>SAFETY SHIELD ACTIVE</span>
+                    <span>ACTIVE HEALTH SAFEGUARDS</span>
                     <h2>{t.safety_shield_title}</h2>
                   </div>
                 </div>
                 <p className="reason">{t.safety_shield_sub}</p>
                 <div className="safety-notices">
-                  {data.overrides.map((entry, i) => {
-                    const matchedMember = members.find((m) => m.id === entry.memberId);
-                    const memberName = matchedMember ? matchedMember.label : (entry.memberId || 'Family member');
+                  {groupedProtections.map((item, i) => {
+                    const formattedPeriods = item.periods.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(', ');
                     return (
                       <div className="safety-notice-card" key={i}>
                         <div className="safety-notice-icon">🛡️</div>
                         <div className="safety-notice-content">
-                          <h4>{memberName} · {entry.period.toUpperCase()} Activity Protected</h4>
+                          <h4>{item.memberName} · {formattedPeriods} {item.periods.length > 1 ? 'Routines' : 'Routine'} Protected</h4>
                           <p>
-                            High outdoor air pollution exceeded the safety threshold. High-exertion outdoor activity was automatically moved indoors to protect lung function.
+                            High outdoor air pollution exceeded the healthy threshold. Outdoor exertion was safely replaced with guided indoor activities to protect lung function and reduce particulate inhalation.
                           </p>
                         </div>
                       </div>

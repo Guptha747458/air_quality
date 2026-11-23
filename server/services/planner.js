@@ -130,8 +130,8 @@ function periodPlan(member, airQuality, profile, period = 'morning') {
             : 'Normal indoor evening activities; ensure windows are secured before night.');
   }
   const reason = aqi === null
-    ? 'Live AQI is unavailable, so outdoor activity is blocked for safety.'
-    : `Based on AQI ${aqi} and member vulnerability: ${vulnerable ? 'Stricter limits apply.' : 'Standard limits apply.'}`;
+    ? 'Live air quality reading is unavailable; outdoor activity is paused as a sensible health precaution.'
+    : `Tailored for current conditions (AQI ${aqi})${vulnerable ? ' with enhanced safeguards for sensitive airways.' : '.'}`;
   const xai = buildRecommendation({
     aqi,
     pm25: Number(airQuality?.pm25 ?? 0),

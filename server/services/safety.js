@@ -9,7 +9,7 @@ export function assessSafety(activity, context) {
     return {
       allowed: false,
       shouldBlock: true,
-      reason: 'Outdoor activity blocked because live AQI data is unavailable',
+      reason: 'Outdoor activity is paused because live air quality data is unavailable',
     };
   }
   const outdoorBlocked = aqi > SAFETY_RULES.outdoorBlockAqi;
@@ -25,9 +25,9 @@ export function assessSafety(activity, context) {
   }
 
   const reasons = [];
-  if (outdoorBlocked) reasons.push(`Outdoor activity blocked at AQI ${aqi} above safety limit ${SAFETY_RULES.outdoorBlockAqi}`);
-  if (vulnerableBlocked) reasons.push(`Vulnerable member exposure blocked at AQI ${aqi} above stricter limit ${SAFETY_RULES.vulnerableOutdoorBlockAqi}`);
-  if (activity?.exertion === 'moderate' || activity?.exertion === 'high') reasons.push(`Exertion level ${activity.exertion} is not allowed at AQI ${aqi}`);
+  if (outdoorBlocked) reasons.push(`Outdoor air pollution (AQI ${aqi}) exceeds healthy thresholds`);
+  if (vulnerableBlocked) reasons.push(`Stricter indoor air protection is active for sensitive family members`);
+  if (activity?.exertion === 'moderate' || activity?.exertion === 'high') reasons.push(`Elevated physical exertion is paused during poor air quality`);
 
   return {
     allowed: false,
@@ -79,8 +79,8 @@ export function applySafetyToPlan(plan, context) {
           outdoor: false,
           exertion: 'none',
           durationMinutes: 0,
-          reason: `Safety override: ${assessment.reason}. Indoor activity recommended.`,
-          indoorAlternative: activity?.indoorAlternative || 'Keep windows closed and use a purifier during high AQI.',
+          reason: `Health protection active: ${assessment.reason}. Indoor activity recommended to safeguard respiratory health.`,
+          indoorAlternative: activity?.indoorAlternative || 'Keep windows closed and run an air purifier during high AQI.',
           generatedBy: 'safety_fallback',
         };
       }
