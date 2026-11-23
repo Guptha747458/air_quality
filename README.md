@@ -1,0 +1,50 @@
+# Air Quality & Daily Routines
+
+GenAI-powered app for low-emission daily routines, indoor air hacks, and sustainable alternatives tailored to each user's location and lifestyle.
+
+## Architecture
+
+- **GenAI layer**: Google Gemini 2.5 Flash (via `GEMINI_API_KEY`) generates daily plans as structured JSON.
+- **Explainability (XAI) layer**: A surrogate linear model approximates the planner. Exact Shapley values are computed as `feature * weight` for each feature; the sum of attributions equals `prediction - baseline` within floating-point tolerance.
+- **Safety layer**: Hard rules run before and after the LLM. Outdoor exertion is blocked when AQI exceeds 150; for vulnerable members, the threshold is 100. Overrides are logged.
+- **Live data**: Open-Meteo Geocoding resolves the location; the Open-Meteo Air Quality API provides current PM2.5, PM10, and AQI. Falls back to the nearest static location if geocoding fails.
+- **Frontend**: React with custom Material 3 Expressive tokens, responsive `clamp()` sizing, expressive shapes, and an inline SVG PM2.5 forecast chart.
+- **Backend**: All third-party API calls (Gemini, Open-Meteo) are proxied through the server. API keys never reach the browser.
+
+## Safety Rules
+
+| Condition | Threshold | Action |
+|-----------|-----------|--------|
+| Outdoor exertion | AQI > 150 | Blocked |
+| Vulnerable members | AQI > 100 | Stricter block |
+| Moderate exertion | AQI > 100 | Blocked |
+
+Every LLM output is validated against the plan schema. Any recommendation violating a rule is replaced and logged.
+
+## Shapley Attribution
+
+For a linear surrogate `y = Σ w_i * x_i`, the Shapley contribution of feature `i` is `w_i * x_i`. The sum of all contributions equals `prediction - baseline` exactly (within floating-point tolerance). This is verified by the test suite.
+
+## Setup
+
+```bash
+cp .env.example .env
+# Edit .env to set GEMINI_API_KEY and PORT
+npm install
+npm test
+npm start
+```
+
+## Tests
+
+```bash
+npm test
+```
+
+## CSP
+
+A strict Content-Security-Policy is set on all responses: `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://generativelanguage.googleapis.com https://geocoding-api.open-meteo.com https://air-quality-api.open-meteo.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self';`.
+
+## Running
+
+Open `http://localhost:8787` in a browser. Enter a location and generate a plan. Disable the Gemini key to switch to fallback mode.
