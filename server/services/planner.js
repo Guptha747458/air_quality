@@ -60,30 +60,74 @@ function periodPlan(member, airQuality, profile, period = 'morning') {
   const outdoor = safeOutdoor ? true : false;
   const durationMinutes = outdoor ? 30 : 0;
 
-  const commuteSuggestion =
-    profile.commuteMode === 'car'
-      ? 'Avoid solo driving; use shared transport, bus, or train.'
-      : profile.commuteMode === 'walk' || profile.commuteMode === 'cycle'
-        ? aqi > 100 ? 'Avoid walking/cycling outdoors; take shared transport.' : 'Walk or cycle is acceptable.'
-        : 'Use public transport where available.';
+  let commuteSuggestion;
+  if (member.label.startsWith('Child')) {
+    commuteSuggestion = 'Travel via enclosed school transit or carpool; keep bus windows closed during highway traffic.';
+  } else if (member.label.startsWith('Elder')) {
+    commuteSuggestion = 'Minimize transit errands; schedule unavoidable trips during midday low-traffic hours.';
+  } else if (profile.outdoorWork) {
+    commuteSuggestion = 'Wear a fitted N95 mask during travel and outdoor shifts; schedule shaded indoor recovery breaks.';
+  } else if (profile.commuteMode === 'car') {
+    commuteSuggestion = 'Switch AC to cabin air recirculation mode; avoid prolonged idling in traffic.';
+  } else if (profile.commuteMode === 'walk' || profile.commuteMode === 'cycle') {
+    commuteSuggestion = aqi > 100 ? 'Air quality is poor; switch to public bus or rail instead of walking/cycling.' : 'Walking or cycling is acceptable along tree-lined streets away from main roads.';
+  } else if (profile.commuteMode === 'two_wheeler') {
+    commuteSuggestion = 'Wear a certified anti-particulate mask and keep helmet visor closed on congested roads.';
+  } else if (profile.commuteMode === 'work_from_home') {
+    commuteSuggestion = 'Zero commute exposure today; keep home workspace well-sealed and air-filtered.';
+  } else {
+    commuteSuggestion = 'Use public transit (bus/train); board promptly to avoid breathing platform exhaust.';
+  }
 
   let indoorActivity;
   if (member.label.startsWith('Child')) {
     indoorActivity = blockedOutdoor
-      ? 'Plan indoor play and schoolwork; keep windows closed and keep a caregiver away from smoke.'
-      : 'Choose a low-traffic indoor activity; ventilate briefly only during the lowest-AQI hour.';
+      ? (period === 'morning'
+          ? 'Plan morning indoor learning and creative play; keep windows shut during morning pollution.'
+          : period === 'afternoon'
+            ? 'Quiet indoor rest, crafts, or reading; stay away from open windows during peak outdoor haze.'
+            : 'Indoor family evening activities; keep bedroom air clean and filtered before sleeping.')
+      : (period === 'morning'
+          ? 'Morning indoor activities with brief ventilation only during low-AQI window.'
+          : period === 'afternoon'
+            ? 'Indoor playtime away from direct sunlight and outdoor dust.'
+            : 'Wind down with quiet indoor games in a filtered room.');
   } else if (member.label.startsWith('Elder')) {
     indoorActivity = blockedOutdoor
-      ? 'Stay in the cleanest room, rest, and reduce physical effort.'
-      : 'Do gentle indoor movement and keep ventilation short.';
+      ? (period === 'morning'
+          ? 'Stay in the cleanest interior room; do light indoor stretching and hydrate well.'
+          : period === 'afternoon'
+            ? 'Midday rest in a cool, filtered room; avoid physical exertion.'
+            : 'Early dinner and relaxation in a purified sleeping area.')
+      : (period === 'morning'
+          ? 'Gentle morning mobility exercises indoors with light ventilation if clean.'
+          : period === 'afternoon'
+            ? 'Rest or quiet reading indoors away from afternoon dust.'
+            : 'Gentle indoor winding down and early rest.');
   } else if (member.label.includes('respiratory')) {
     indoorActivity = blockedOutdoor
-      ? 'Stay indoors in the cleanest room and avoid smoke, incense, and strenuous effort.'
-      : 'Use a purifier if available and keep indoor movement gentle.';
+      ? (period === 'morning'
+          ? 'Stay indoors in the cleanest room; avoid incense, smoke, or cold dry drafts.'
+          : period === 'afternoon'
+            ? 'Keep inhaler accessible; remain in an air-purified room and avoid physical strain.'
+            : 'Ensure nighttime air purifier is on low noise mode in sleeping area.')
+      : (period === 'morning'
+          ? 'Gentle indoor movement; use a purifier if available during morning haze.'
+          : period === 'afternoon'
+            ? 'Indoor work or study in a well-filtered environment.'
+            : 'Relaxation indoors; keep bedroom sealed against night pollution.');
   } else {
     indoorActivity = blockedOutdoor
-      ? 'Stay indoors, keep windows closed, and run a purifier if available.'
-      : 'Ventilate during low-AQI hours; use a purifier after ventilation.';
+      ? (period === 'morning'
+          ? 'Indoor morning routine; avoid ventilating during peak traffic and commute hours.'
+          : period === 'afternoon'
+            ? 'Midday indoor work; keep windows closed and run air filtration if available.'
+            : 'Seal windows before evening temperature inversion; prepare a clean indoor rest space.')
+      : (period === 'morning'
+          ? 'Ventilate briefly during the morning low-AQI window; run purifier afterward.'
+          : period === 'afternoon'
+            ? 'Standard indoor activities; keep blinds drawn to reduce cooling load.'
+            : 'Normal indoor evening activities; ensure windows are secured before night.');
   }
   const reason = aqi === null
     ? 'Live AQI is unavailable, so outdoor activity is blocked for safety.'
@@ -104,13 +148,29 @@ function periodPlan(member, airQuality, profile, period = 'morning') {
     : 'Indoor activity avoids outdoor exposure and lowers emissions.';
   return {
     activity: outdoor
-      ? (member.label.startsWith('Child')
-        ? 'Short, light outdoor play away from traffic.'
-        : member.label.startsWith('Elder')
-          ? 'A short, gentle outing away from traffic.'
-          : member.label.includes('respiratory')
-            ? 'Only brief, gentle outdoor movement; stop if symptoms increase.'
-            : 'Light outdoor activity during low-traffic hours.')
+      ? (period === 'morning'
+          ? (member.label.startsWith('Child')
+            ? 'Morning outdoor play in a clean park or courtyard away from main roads.'
+            : member.label.startsWith('Elder')
+              ? 'Gentle morning walk in a green space before traffic builds up.'
+              : member.label.includes('respiratory')
+                ? 'Short, light morning walk; stop immediately if chest tightness or coughing occurs.'
+                : 'Morning jog or outdoor exercise during low-traffic hours.')
+          : period === 'afternoon'
+            ? (member.label.startsWith('Child')
+              ? 'Short shaded outdoor games; avoid running during peak sun and dust.'
+              : member.label.startsWith('Elder')
+                ? 'Brief shaded stroll; sit and rest frequently.'
+                : member.label.includes('respiratory')
+                  ? 'Limited outdoor errands only; wear a mask if near traffic.'
+                  : 'Low-intensity outdoor activity; stay hydrated in shaded areas.')
+            : (member.label.startsWith('Child')
+              ? 'Light playground play before sunset; return indoors before evening pollution rises.'
+              : member.label.startsWith('Elder')
+                ? 'Gentle evening garden walk before nightfall.'
+                : member.label.includes('respiratory')
+                  ? 'Brief evening outdoor step; return indoors before temperatures drop.'
+                  : 'Evening stroll or cycling before evening road traffic peak.'))
       : indoorActivity,
     outdoor,
     exertion: outdoorExertion,

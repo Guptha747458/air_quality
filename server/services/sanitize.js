@@ -99,59 +99,75 @@ export function sanitizeProfile(input) {
 
 export function buildMembers(profile) {
   const members = [];
-  const addAdult = (label, vulnerable, vulnerabilities = []) => {
-    members.push({
-      id: `${label.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_${members.length + 1}`,
-      label,
-      vulnerable,
-      role: 'adult',
-      vulnerabilities,
-    });
-  };
+  const total = profile.householdSize || 1;
+  const childrenCount = Math.min(profile.children || 0, total);
+  const elderlyCount = Math.min(profile.elderly || 0, Math.max(0, total - childrenCount));
+  const remainingSlots = Math.max(0, total - childrenCount - elderlyCount);
+  const respiratoryCount = Math.min(profile.respiratoryConditions || 0, total);
 
-  for (let index = 0; index < profile.children; index += 1) {
+  // 1. Generate Children
+  for (let i = 0; i < childrenCount; i += 1) {
     members.push({
-      id: `child_${index + 1}`,
-      label: `Child ${index + 1}`,
+      id: `child_${i + 1}`,
+      label: `Child ${i + 1}`,
       vulnerable: true,
       role: 'child',
       vulnerabilities: ['age-child'],
     });
   }
-  for (let index = 0; index < profile.elderly; index += 1) {
+
+  // 2. Generate Elderly
+  for (let i = 0; i < elderlyCount; i += 1) {
     members.push({
-      id: `elder_${index + 1}`,
-      label: `Elder ${index + 1}`,
+      id: `elder_${i + 1}`,
+      label: `Elder ${i + 1}`,
       vulnerable: true,
       role: 'elder',
       vulnerabilities: ['age-elder'],
     });
   }
-  for (let index = 0; index < profile.respiratoryConditions; index += 1) {
-    members.push({
-      id: `respiratory_adult_${index + 1}`,
-      label: `Adult with respiratory condition ${index + 1}`,
-      vulnerable: true,
-      role: 'adult',
-      vulnerabilities: ['respiratory-condition'],
-    });
-  }
-  const accounted = profile.children + profile.elderly + profile.respiratoryConditions;
-  const adults = profile.householdSize - accounted;
-  for (let index = 0; index < adults; index += 1) {
-    const asthmaPersona = profile.asthma
-      && profile.respiratoryConditions === 0
-      && index === 0;
-    if (asthmaPersona) {
-      addAdult(`Adult with respiratory condition ${index + 1}`, true, ['respiratory-condition', 'asthma']);
+
+  // 3. Generate Adults (remaining slots)
+  // If respiratory conditions were requested and slots exist, prioritize creating adult personas with respiratory conditions
+  let respiratoryAssigned = 0;
+  for (let i = 0; i < remainingSlots; i += 1) {
+    const isRespiratory = respiratoryAssigned < respiratoryCount || (profile.asthma && respiratoryAssigned === 0);
+    if (isRespiratory) {
+      respiratoryAssigned += 1;
+      members.push({
+        id: `respiratory_adult_${respiratoryAssigned}`,
+        label: `Adult with respiratory condition ${respiratoryAssigned}`,
+        vulnerable: true,
+        role: 'adult',
+        vulnerabilities: ['respiratory-condition', ...(profile.asthma ? ['asthma'] : [])],
+      });
     } else {
-      addAdult(`Adult ${index + 1}`, false, []);
+      members.push({
+        id: `adult_${i + 1}`,
+        label: `Adult ${i + 1}`,
+        vulnerable: false,
+        role: 'adult',
+        vulnerabilities: [],
+      });
     }
   }
-  if (profile.asthma && profile.respiratoryConditions > 0) {
-    const firstRespiratory = members.find((member) => member.role === 'adult' && member.vulnerabilities.includes('respiratory-condition'));
-    if (firstRespiratory) firstRespiratory.vulnerabilities.push('asthma');
+
+  // If there are still unassigned respiratory conditions (e.g. household is all children or elders),
+  // tag existing vulnerable members so their respiratory condition is never silently dropped.
+  if (respiratoryAssigned < respiratoryCount || profile.asthma) {
+    for (const member of members) {
+      if (!member.vulnerabilities.includes('respiratory-condition')) {
+        member.vulnerabilities.push('respiratory-condition');
+        if (profile.asthma && !member.vulnerabilities.includes('asthma')) {
+          member.vulnerabilities.push('asthma');
+        }
+        member.vulnerable = true;
+        respiratoryAssigned += 1;
+        if (respiratoryAssigned >= respiratoryCount && !profile.asthma) break;
+      }
+    }
   }
+
   return members;
 }
 
