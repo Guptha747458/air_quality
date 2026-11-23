@@ -68,19 +68,25 @@ function routeHandler(request, response) {
     return respondJson(response, 405, { error: 'Method not allowed' });
   }
 
-  if (pathname === '/health') {
+  if (pathname === '/health' || pathname === '/api/health') {
     return respondJson(response, 200, { status: 'ok' });
   }
 
   async function getRequestPayload() {
     if (method === 'POST') {
+      if (request.body !== undefined && request.body !== null) {
+        if (typeof request.body === 'string') {
+          return request.body ? JSON.parse(request.body) : {};
+        }
+        return request.body;
+      }
       const body = await readBody(request);
       return body ? JSON.parse(body) : {};
     }
     return query;
   }
 
-  if (pathname === '/api/plan' && ['GET', 'POST'].includes(method)) {
+  if ((pathname === '/api/plan' || pathname === '/plan') && ['GET', 'POST'].includes(method)) {
     (async () => {
       try {
         const payload = await getRequestPayload();
@@ -102,7 +108,7 @@ function routeHandler(request, response) {
     return;
   }
 
-  if (pathname === '/api/qa' && ['GET', 'POST'].includes(method)) {
+  if ((pathname === '/api/qa' || pathname === '/qa') && ['GET', 'POST'].includes(method)) {
     (async () => {
       try {
         const payload = await getRequestPayload();
@@ -150,7 +156,7 @@ const isTestEnv = process.env.NODE_ENV === 'test' ||
   process.env.npm_lifecycle_event === 'test' ||
   process.argv.some(arg => arg.includes('test'));
 
-if (!isTestEnv) {
+if (!isTestEnv && !process.env.VERCEL) {
   server.listen(port, () => console.log(`Server running on port ${port}`));
 }
 
