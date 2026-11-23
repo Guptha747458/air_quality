@@ -1,0 +1,337 @@
+import { sanitizeLocation, sanitizeProfile, sanitizeQuestion } from './sanitize.js';
+import { SAFETY_RULES } from './config.js';
+import { applySafetyToPlan, validatePlanOutput } from './safety.js';
+import { buildRecommendation } from './xai.js';
+
+export function geminiEnabled(config) {
+  return typeof config?.apiKey === 'string' && config.apiKey.trim().length > 0;
+}
+
+export async function callGemini(config, systemPrompt, userPrompt) {
+  if (!geminiEnabled(config)) {
+    throw new Error('Gemini disabled: missing API key');
+  }
+  const url = `${config.baseUrl}/${config.model}:generateContent?key=${config.apiKey}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs || 12000);
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+        generationConfig: { responseMimeType: 'application/json' },
+      }),
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Gemini ${response.status}: ${text}`);
+  }
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const parsed = JSON.parse(text);
+  return parsed;
+}
+
+export function sanitizePlannerInput(rawLocation, rawProfile) {
+  const location = sanitizeLocation(rawLocation || '');
+  const profile = sanitizeProfile(rawProfile || {});
+  return { location, profile };
+}
+
+function periodPlan(member, airQuality, profile, period = 'morning') {
+  const thresholds = SAFETY_RULES;
+  const forecastIndex = period === 'morning' ? 6 : period === 'afternoon' ? 13 : 19;
+  const forecastPoint = Array.isArray(airQuality?.forecast) ? airQuality.forecast[forecastIndex] : null;
+  const aqi = forecastPoint?.aqi != null
+    ? Number(forecastPoint.aqi)
+    : (airQuality?.aqi === null || airQuality?.aqi === undefined ? null : Number(airQuality.aqi));
+  const vulnerable = member?.vulnerable ?? false;
+  const blockedOutdoor = aqi === null || aqi > thresholds.outdoorBlockAqi || (vulnerable && aqi > thresholds.vulnerableOutdoorBlockAqi);
+  const hour = period === 'morning' ? 8 : period === 'afternoon' ? 14 : 19;
+  const safeOutdoor = !blockedOutdoor && aqi <= 100;
+  const outdoorExertion = safeOutdoor ? 'light' : 'none';
+  const outdoor = safeOutdoor ? true : false;
+  const durationMinutes = outdoor ? 30 : 0;
+
+  const commuteSuggestion =
+    profile.commuteMode === 'car'
+      ? 'Avoid solo driving; use shared transport, bus, or train.'
+      : profile.commuteMode === 'walk' || profile.commuteMode === 'cycle'
+        ? aqi > 100 ? 'Avoid walking/cycling outdoors; take shared transport.' : 'Walk or cycle is acceptable.'
+        : 'Use public transport where available.';
+
+  let indoorActivity;
+  if (member.label.startsWith('Child')) {
+    indoorActivity = blockedOutdoor
+      ? 'Plan indoor play and schoolwork; keep windows closed and keep a caregiver away from smoke.'
+      : 'Choose a low-traffic indoor activity; ventilate briefly only during the lowest-AQI hour.';
+  } else if (member.label.startsWith('Elder')) {
+    indoorActivity = blockedOutdoor
+      ? 'Stay in the cleanest room, rest, and reduce physical effort.'
+      : 'Do gentle indoor movement and keep ventilation short.';
+  } else if (member.label.includes('respiratory')) {
+    indoorActivity = blockedOutdoor
+      ? 'Stay indoors in the cleanest room and avoid smoke, incense, and strenuous effort.'
+      : 'Use a purifier if available and keep indoor movement gentle.';
+  } else {
+    indoorActivity = blockedOutdoor
+      ? 'Stay indoors, keep windows closed, and run a purifier if available.'
+      : 'Ventilate during low-AQI hours; use a purifier after ventilation.';
+  }
+  const reason = aqi === null
+    ? 'Live AQI is unavailable, so outdoor activity is blocked for safety.'
+    : `Based on AQI ${aqi} and member vulnerability: ${vulnerable ? 'Stricter limits apply.' : 'Standard limits apply.'}`;
+  const xai = buildRecommendation({
+    aqi,
+    pm25: Number(airQuality?.pm25 ?? 0),
+    hour,
+    windSpeed: Number(airQuality?.windSpeed ?? 5),
+    vulnerable,
+    commuteFactor: profile.commuteMode === 'work_from_home' ? 0 : profile.commuteMode === 'walk' || profile.commuteMode === 'cycle' ? 0.7 : 0.5,
+    cookingFactor: ['wood', 'charcoal', 'biomass', 'kerosene'].includes(profile.cookingFuel) ? 0.9 : 0.3,
+    heatingFactor: ['wood', 'charcoal', 'biomass', 'kerosene'].includes(profile.heatingSource) ? 0.9 : 0.3,
+    outdoorWork: profile.outdoorWork,
+  });
+  const impact = outdoor
+    ? 'Outdoor activity may add exposure; limit it to 30 minutes in a low-traffic area.'
+    : 'Indoor activity avoids outdoor exposure and lowers emissions.';
+  return {
+    activity: outdoor
+      ? (member.label.startsWith('Child')
+        ? 'Short, light outdoor play away from traffic.'
+        : member.label.startsWith('Elder')
+          ? 'A short, gentle outing away from traffic.'
+          : member.label.includes('respiratory')
+            ? 'Only brief, gentle outdoor movement; stop if symptoms increase.'
+            : 'Light outdoor activity during low-traffic hours.')
+      : indoorActivity,
+    outdoor,
+    exertion: outdoorExertion,
+    durationMinutes,
+    reason,
+    indoorAlternative: indoorActivity,
+    commute: commuteSuggestion,
+    source: 'surrogate',
+    xai,
+    impact,
+  };
+}
+
+export function buildPlan(location, profile, airQuality, config) {
+  const members = Array.isArray(profile?.members) ? profile.members : [];
+  const planMembers = members.map((member) => {
+    const periods = {
+      morning: periodPlan(member, airQuality, profile, 'morning'),
+      afternoon: periodPlan(member, airQuality, profile, 'afternoon'),
+      evening: periodPlan(member, airQuality, profile, 'evening'),
+    };
+    return {
+      id: member.id,
+      label: member.label,
+      vulnerable: member.vulnerable,
+      vulnerabilityScore: member.vulnerabilityScore,
+      periods,
+    };
+  });
+
+  const plan = {
+    location,
+    summary: `Daily plan for ${location} based on ${airQuality?.aqi == null ? 'AQI unavailable' : `AQI ${airQuality.aqi}`}.`,
+    members: planMembers,
+    indoorAirHacks: [
+      'Keep windows closed when AQI exceeds 100.',
+      'Run a HEAP purifier in sleeping areas.',
+      'Avoid incense, candles, and open-flame cooking when AQI exceeds 100.',
+      'Maintain indoor humidity between 30% and 50%.',
+    ],
+    sustainableAlternatives: [
+      'Use shared transport or public bus instead of solo driving.',
+      'Switch to electric or LPG cooking if wood or charcoal is used.',
+      'Reduce biomass burning where possible.',
+      'Prefer electric heating over biomass or coal.',
+    ],
+  };
+
+  const validation = validatePlanOutput(plan);
+  if (!validation.valid) {
+    throw new Error(`Validation failed: ${validation.issues.join('; ')}`);
+  }
+
+  return { plan, validation };
+}
+
+export function makeFallbackPlan(location, profile, airQuality) {
+  const hour = new Date().getHours();
+  const aqi = airQuality?.aqi == null ? null : Number(airQuality.aqi);
+  return {
+    location,
+    summary: `Safety-guided fallback plan for ${location}. ${aqi == null ? 'AQI unavailable.' : `AQI ${aqi}.`}`,
+    members: (profile?.members || []).map((member) => {
+      const memberPeriods = {};
+      for (const period of ['morning', 'afternoon', 'evening']) {
+        const memberPlan = periodPlan(member, airQuality, profile, period);
+        memberPeriods[period] = {
+          ...memberPlan,
+          reason: memberPlan.reason,
+        };
+      }
+      const periods = {
+        ...memberPeriods,
+      };
+      return { id: member.id, label: member.label, vulnerable: member.vulnerable, vulnerabilityScore: member.vulnerabilityScore, periods };
+    }),
+    indoorAirHacks: ['Keep windows closed when AQI exceeds 100.', 'Run a purifier if available.'],
+    sustainableAlternatives: ['Use shared transport.', 'Switch to cleaner cooking fuel.'],
+  };
+}
+
+export function mergeLlmWithCanonicalHousehold(llmPlan, canonicalMembers, location, profile, airQuality) {
+  const llmMembers = Array.isArray(llmPlan?.members) ? llmPlan.members : [];
+  const members = canonicalMembers.map((canonical, index) => {
+    const llmMember = llmMembers[index];
+    const periods = {};
+    for (const period of ['morning', 'afternoon', 'evening']) {
+      const candidate = llmMember?.periods?.[period];
+      periods[period] = candidate?.activity
+        ? { ...candidate, source: 'llm' }
+        : periodPlan(canonical, airQuality, profile, period);
+    }
+    return {
+      id: canonical.id,
+      label: canonical.label,
+      vulnerable: canonical.vulnerable,
+      role: canonical.role,
+      vulnerabilities: canonical.vulnerabilities,
+      periods,
+    };
+  });
+  return {
+    location,
+    summary: llmPlan?.summary || `Personalised daily plan for ${location}.`,
+    members,
+    indoorAirHacks: Array.isArray(llmPlan?.indoorAirHacks) ? llmPlan.indoorAirHacks.slice(0, 4) : [],
+    sustainableAlternatives: Array.isArray(llmPlan?.sustainableAlternatives) ? llmPlan.sustainableAlternatives.slice(0, 4) : [],
+  };
+}
+
+export function toPublicPlanResponse(result) {
+  const plan = result?.plan || {};
+  const air = result?.airQuality || {};
+  return {
+    plan: {
+      location: plan.location,
+      summary: plan.summary,
+      members: (plan.members || []).map((member) => ({
+        id: member.id,
+        label: member.label,
+        vulnerable: member.vulnerable,
+        periods: Object.fromEntries(['morning', 'afternoon', 'evening'].map((period) => {
+          const item = member.periods?.[period] || {};
+          const top = item.xai?.topShapley || [];
+          return [period, {
+            activity: item.activity,
+            outdoor: item.outdoor,
+            exposureEffect: item.impact,
+            why: item.reason,
+            whyFactors: top.slice(0, 3).map((entry) => ({
+              label: {
+                pm25: 'Live particle levels',
+                hour: 'Time of day',
+                wind: 'Local wind',
+                vulnerability: 'Household vulnerability',
+                commuteFactor: 'Commute type',
+                cookingFactor: 'Cooking source',
+                heatingFactor: 'Heating source',
+                outdoorWork: 'Outdoor work',
+              }[entry.feature] || 'Current conditions',
+            })),
+          }];
+        })),
+      })),
+      indoorAirHacks: (plan.indoorAirHacks || []).slice(0, 4),
+      sustainableAlternatives: (plan.sustainableAlternatives || []).slice(0, 4),
+    },
+    source: result.source === 'llm' ? 'llm' : 'fallback',
+    fallback: result.source !== 'llm' || result.geminiDisabled,
+    airQuality: {
+      status: air.aqi == null ? 'unavailable' : 'available',
+      aqi: air.aqi ?? null,
+      pm25: air.pm25 ?? null,
+      pm10: air.pm10 ?? null,
+      timestamp: air.timestamp || null,
+      forecast: (air.forecast || []).slice(0, 24),
+      location: air.location || null,
+    },
+    note: air.note || null,
+    overrides: (result.overrides || []).map((entry) => ({
+      timestamp: entry.timestamp,
+      memberId: entry.memberId,
+      period: entry.period,
+      action: entry.action,
+    })),
+  };
+}
+
+export async function generatePlan(location, profile, airQuality, config) {
+  let plan;
+  let source = 'fallback';
+  let llmPlan = null;
+  try {
+    if (!geminiEnabled(config)) {
+      throw new Error('Gemini disabled');
+    }
+    const prompt = `Create a valid daily-plan JSON object for ${location}. Profile: ${JSON.stringify(profile)}. Live conditions: ${JSON.stringify(airQuality)}. Include summary, members, indoorAirHacks, and sustainableAlternatives. For every member include morning, afternoon, and evening objects with activity, outdoor(boolean), exertion(none/light/moderate/high), durationMinutes, reason, indoorAlternative, source="llm". Never recommend outdoor activity with AQI above 150 or for vulnerable members above 100.`;
+    plan = await callGemini(config, 'Return JSON only.', prompt);
+    const validation = validatePlanOutput(plan);
+    if (!validation.valid) throw new Error(validation.issues.join('; '));
+    llmPlan = plan;
+    source = 'llm';
+  } catch (error) {
+    plan = null;
+  }
+
+  if (!plan) {
+    plan = makeFallbackPlan(location, profile, airQuality);
+  } else if (llmPlan) {
+    plan = mergeLlmWithCanonicalHousehold(llmPlan, profile.members, location, profile, airQuality);
+  }
+
+  const safetyContext = { aqi: airQuality?.aqi ?? null };
+  const safetyResult = applySafetyToPlan(plan, safetyContext);
+
+  const result = {
+    plan: safetyResult.plan,
+    source,
+    airQuality,
+    geminiDisabled: !geminiEnabled(config),
+    overrides: safetyResult.overrides,
+    safetyThresholds: SAFETY_RULES,
+  };
+  return toPublicPlanResponse(result);
+}
+
+export function answerQuestion(question, airQuality, profile) {
+  const q = sanitizeQuestion(question || '');
+  const lower = q.toLowerCase();
+  const location = airQuality?.location?.city ?? 'your location';
+  const aqi = airQuality?.aqi ?? null;
+  let answer;
+  if (/diagnos|dosing|dose|medicine|medication|prescri/.test(lower)) {
+    answer = `I cannot diagnose or give medicine dosing. For symptoms in ${location}, contact a local clinician or emergency service. Live AQI is ${aqi == null ? 'unavailable' : aqi}; stay indoors if AQI exceeds 150.`;
+  } else if (/outdoor|exercise|walk|jog|run/.test(lower)) {
+    const blocked = aqi == null || aqi > 150 || (profile?.vulnerableCount > 0 && aqi > 100);
+    answer = blocked
+      ? `At AQI ${aqi == null ? 'unavailable' : aqi} in ${location}, avoid outdoor exertion. For vulnerable household members, move the activity indoors.`
+      : `At AQI ${aqi} in ${location}, keep outdoor activity light, avoid high-traffic roads, and stop if symptoms occur.`;
+  } else {
+    answer = `At AQI ${aqi == null ? 'unavailable' : aqi} in ${location}, keep windows closed above 100, use a fitted filter or purifier if available, and avoid incense or open-flame cooking.`;
+  }
+  return { answer, source: 'surrogate', airQuality };
+}
