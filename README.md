@@ -24,9 +24,13 @@ The frontend was introduced in the preceding deployment update (`faff20b`) as a 
 - **GenAI layer**: Google Gemini 2.5 Flash (via `GEMINI_API_KEY`) generates daily plans as structured JSON.
 - **Explainability (XAI) layer**: A surrogate linear model approximates the planner. Exact Shapley values are computed as `feature * weight` for each feature; the sum of attributions equals `prediction - baseline` within floating-point tolerance.
 - **Safety layer**: Hard rules run before and after the LLM. Outdoor exertion is blocked when AQI exceeds 150; for vulnerable members, the threshold is 100. Overrides are logged.
-- **Live data**: Open-Meteo Geocoding resolves the location; the Open-Meteo Air Quality API provides current PM2.5, PM10, and AQI. Falls back to the nearest static location if geocoding fails.
+- **Live data**: Open-Meteo Geocoding resolves typed locations; browser geolocation can provide coordinates directly. The Open-Meteo Air Quality API provides current US AQI, PM2.5, PM10, wind, and an hourly forecast. The interface displays the air-data provider and observation timestamp in the provider's timezone; forecast tooltips show each point's source-local timestamp. If location lookup falls back to preset coordinates or air data is unavailable, the interface identifies that condition rather than presenting missing measurements as live readings.
 - **Frontend**: React with custom Material 3 Expressive tokens, responsive `clamp()` sizing, expressive shapes, light/dark themes, and an inline SVG PM2.5 forecast chart.
 - **Backend**: All third-party API calls (Gemini, Open-Meteo) are proxied through the server. API keys never reach the browser.
+
+Open-Meteo is the configured live data provider; this project does not currently query CPCB or OpenAQ. The AQI displayed is Open-Meteo's US AQI (or unavailable when no measurement is returned), not a CPCB AQI reading.
+
+The assistant tailors daily routines to household composition, respiratory sensitivities, commute mode, cooking fuel, heating source, and outdoor work. It provides indoor air protections, lower-emission commute alternatives, and brief explanations of each routine's air-quality, exposure, or emissions impact. These impact descriptions are qualitative; the app does not calculate verified emissions reductions.
 
 ## Safety Rules
 

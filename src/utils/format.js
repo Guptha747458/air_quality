@@ -4,6 +4,12 @@
 
 export function formatHour(isoTime, index = 0) {
   if (!isoTime) return `+${index}h`;
+  const sourceLocalHour = String(isoTime).match(/T(\d{2}):(\d{2})(?::\d{2})?$/);
+  if (sourceLocalHour) {
+    const hour = Number(sourceLocalHour[1]);
+    const formatted = hour % 12 || 12;
+    return `${formatted} ${hour >= 12 ? 'PM' : 'AM'}`;
+  }
   try {
     const d = new Date(isoTime);
     if (isNaN(d.getTime())) return `+${index}h`;
@@ -14,6 +20,12 @@ export function formatHour(isoTime, index = 0) {
   } catch {
     return `+${index}h`;
   }
+}
+
+export function formatSourceTimestamp(timestamp, timezone) {
+  if (!timestamp) return null;
+  const formatted = String(timestamp).replace('T', ' ');
+  return timezone ? `${formatted} (${timezone})` : formatted;
 }
 
 export function capitalize(str = '') {

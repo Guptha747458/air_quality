@@ -46,6 +46,11 @@ export const DICT = Object.freeze({
     best_time_label: 'Best Outdoor Window',
     risk_label: 'Risk Level',
     who_affected_label: 'Vulnerable Groups',
+    data_source: 'Data source',
+    observed_at: 'Observed',
+    timestamp_unavailable: 'Timestamp unavailable',
+    source_unavailable: 'Unavailable — no measured data',
+    location_fallback: 'Location resolved using fallback coordinates',
   },
   hi: {
     brand: 'साँस',
@@ -94,6 +99,11 @@ export const DICT = Object.freeze({
     best_time_label: 'बाहर जाने का सर्वोत्तम समय',
     risk_label: 'जोखिम स्तर',
     who_affected_label: 'प्रभावित वर्ग',
+    data_source: 'डेटा स्रोत',
+    observed_at: 'अवलोकन समय',
+    timestamp_unavailable: 'समय उपलब्ध नहीं',
+    source_unavailable: 'उपलब्ध नहीं — मापा गया डेटा नहीं',
+    location_fallback: 'स्थान का अनुमान वैकल्पिक निर्देशांकों से लगाया गया',
   },
 });
 

@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Icon } from './Icon.jsx';
 import { getAqiDetails, getBestOutdoorWindow } from '../utils/aqi.js';
+import { formatSourceTimestamp } from '../utils/format.js';
 
 function AirQualityCardComponent({ airQuality, language = 'en', t }) {
   const aq = airQuality;
@@ -10,6 +11,10 @@ function AirQualityCardComponent({ airQuality, language = 'en', t }) {
     () => getBestOutdoorWindow(aq?.forecast, language),
     [aq?.forecast, language]
   );
+  const observedAt = formatSourceTimestamp(aq?.timestamp, aq?.timezone);
+  const sourceLabel = aq?.source === 'open-meteo'
+    ? 'Open-Meteo Air Quality API'
+    : (t.source_unavailable || 'Unavailable — no measured data');
 
   return (
     <article className="card health-card" aria-labelledby="air-quality-heading">
@@ -58,6 +63,13 @@ function AirQualityCardComponent({ airQuality, language = 'en', t }) {
           <span>Wind:</span> <strong>{aq?.windSpeed != null ? `${aq.windSpeed} km/h` : 'Calm'}</strong>
         </div>
       </div>
+      <p className="source-meta" aria-live="polite">
+        <span>{t.data_source || 'Data source'}: {sourceLabel}</span>
+        <span>{t.observed_at || 'Observed'}: {observedAt || (t.timestamp_unavailable || 'Timestamp unavailable')}</span>
+        {aq?.locationSource === 'fallback' && (
+          <span>{t.location_fallback || 'Location resolved using fallback coordinates'}</span>
+        )}
+      </p>
     </article>
   );
 }

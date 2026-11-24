@@ -434,6 +434,7 @@ export default function App() {
                 </div>
                 <ForecastTimeline
                   forecast={aq?.forecast}
+                  timezone={aq?.timezone}
                   isLoading={loading}
                   isError={!aq?.forecast && !!error}
                   onRetry={generate}

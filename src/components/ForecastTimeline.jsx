@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Icon } from './Icon.jsx';
-import { formatHour } from '../utils/format.js';
+import { formatHour, formatSourceTimestamp } from '../utils/format.js';
 
 function ChartSkeleton() {
   return (
@@ -14,7 +14,7 @@ function ChartSkeleton() {
   );
 }
 
-function ForecastTimelineComponent({ forecast, isLoading, isError, onRetry }) {
+function ForecastTimelineComponent({ forecast, timezone, isLoading, isError, onRetry }) {
   const [activePoint, setActivePoint] = useState(null);
 
   const points = useMemo(() => {
@@ -24,10 +24,11 @@ function ForecastTimelineComponent({ forecast, isLoading, isError, onRetry }) {
   const chartMetrics = useMemo(() => {
     if (!points.length) return null;
     const width = 640;
-    const height = 230;
+    const height = 280;
     const pad = 38;
-    const bottomPad = 32;
-    const maxValue = Math.max(150, ...points.map((p) => Number(p.pm25 || 0)));
+    const bottomPad = 38;
+    const maxValue = Math.max(35, ...points.map((p) => Number(p.pm25 || 0) * 1.15));
+    const thresholds = [35, 55, 150].filter((value) => value <= maxValue);
 
     const x = (i) => pad + (i * (width - pad * 2)) / Math.max(1, points.length - 1);
     const y = (v) => height - bottomPad - (Number(v) * (height - bottomPad - 38)) / maxValue;
@@ -36,7 +37,7 @@ function ForecastTimelineComponent({ forecast, isLoading, isError, onRetry }) {
     const area = `${path} L${x(points.length - 1)},${height - bottomPad} L${x(0)},${height - bottomPad} Z`;
     const timeTicks = [0, 6, 12, 18, 23].filter((idx) => idx < points.length);
 
-    return { width, height, pad, bottomPad, x, y, path, area, timeTicks };
+    return { width, height, pad, bottomPad, x, y, path, area, timeTicks, thresholds };
   }, [points]);
 
   if (isLoading) return <ChartSkeleton />;
@@ -66,7 +67,7 @@ function ForecastTimelineComponent({ forecast, isLoading, isError, onRetry }) {
     );
   }
 
-  const { width, height, pad, bottomPad, x, y, path, area, timeTicks } = chartMetrics;
+  const { width, height, pad, bottomPad, x, y, path, area, timeTicks, thresholds } = chartMetrics;
   const isPartial = points.length < 18;
 
   return (
@@ -90,7 +91,7 @@ function ForecastTimelineComponent({ forecast, isLoading, isError, onRetry }) {
           </linearGradient>
         </defs>
         <path d={area} fill="url(#chartAreaGrad)" />
-        {[35, 55, 150].map((v) => (
+        {thresholds.map((v) => (
           <g key={v}>
             <line x1={pad} x2={width - pad} y1={y(v)} y2={y(v)} className="threshold" />
             <text x={pad} y={y(v) - 6}>{v} µg/m³</text>
@@ -139,7 +140,7 @@ function ForecastTimelineComponent({ forecast, isLoading, isError, onRetry }) {
             top: `${(activePoint.y / height) * 100}%`,
           }}
         >
-          {formatHour(activePoint.point.time, activePoint.index)} · {activePoint.point.pm25 ?? 0} µg/m³ PM2.5
+          {formatSourceTimestamp(activePoint.point.time, timezone) || formatHour(activePoint.point.time, activePoint.index)} · {activePoint.point.pm25 ?? 0} µg/m³ PM2.5
           {activePoint.point.aqi != null ? ` (AQI ${activePoint.point.aqi})` : ''}
         </div>
       )}

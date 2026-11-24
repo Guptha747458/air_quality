@@ -106,6 +106,7 @@ export async function fetchAirQuality(location, {
       windSpeed,
       source: 'open-meteo',
       timestamp: data?.current?.time || data?.hourly?.time?.[0] || null,
+      timezone: data?.timezone || null,
       forecast: pm25Forecast,
     };
   } catch (error) {
@@ -115,6 +116,7 @@ export async function fetchAirQuality(location, {
       pm10: null,
       usAqi: null,
       source: 'fallback',
+      timezone: null,
       note: `Air quality service unavailable; no measured AQI is shown. ${error.message}`,
       error: error.message,
       forecast: [],
@@ -153,6 +155,8 @@ export async function fetchAirQualityByCity(city, options = {}) {
   return {
     ...airQuality,
     location,
+    dataSource: airQuality.source,
+    locationSource: location.source,
     note: location.source === 'fallback' ? location.note : airQuality.note,
     source: location.source === 'fallback' ? 'fallback' : airQuality.source,
   };

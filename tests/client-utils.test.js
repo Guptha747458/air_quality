@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getAqiDetails, getBestOutdoorWindow, calculateDemographics } from '../src/utils/aqi.js';
-import { formatHour, capitalize, sanitizeInputNumber } from '../src/utils/format.js';
+import { formatHour, formatSourceTimestamp, capitalize, sanitizeInputNumber } from '../src/utils/format.js';
 
 test('getAqiDetails handles null/undefined AQI', () => {
   const res = getAqiDetails(null, 'en');
@@ -91,6 +91,18 @@ test('calculateDemographics clamps when children exceed household size', () => {
 test('formatHour formats ISO string to AM/PM', () => {
   const formatted = formatHour('2026-11-23T14:00:00Z', 0);
   assert.ok(formatted.includes('AM') || formatted.includes('PM'));
+});
+
+test('formatHour preserves source-local forecast time without timezone conversion', () => {
+  assert.equal(formatHour('2026-11-23T14:00'), '2 PM');
+});
+
+test('formatSourceTimestamp includes source timezone and handles missing timestamps', () => {
+  assert.equal(
+    formatSourceTimestamp('2026-11-23T14:00', 'Asia/Kolkata'),
+    '2026-11-23 14:00 (Asia/Kolkata)'
+  );
+  assert.equal(formatSourceTimestamp(null, 'Asia/Kolkata'), null);
 });
 
 test('capitalize capitalizes strings', () => {

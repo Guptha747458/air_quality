@@ -196,6 +196,7 @@ test('fetchAirQuality throws on missing location', async () => {
 test('fetchAirQualityByCity end-to-end with mocks', async () => {
   const geoData = { results: [{ name: 'Pune', latitude: 18.5, longitude: 73.8, country_code: 'IN' }] };
   const aqData = {
+    timezone: 'Asia/Kolkata',
     current: { pm2_5: 20, pm10: 30, us_aqi: 50, wind_speed_10m: 6 },
     hourly: { time: ['2026-01-01T00:00'], pm2_5: [20], pm10: [30], us_aqi: [50], wind_speed_10m: [6] },
   };
@@ -208,6 +209,9 @@ test('fetchAirQualityByCity end-to-end with mocks', async () => {
   const result = await fetchAirQualityByCity('Pune', { fetchImpl: mockFetch });
   assert.strictEqual(result.aqi, 50);
   assert.strictEqual(result.location.city, 'Pune');
+  assert.strictEqual(result.timezone, 'Asia/Kolkata');
+  assert.strictEqual(result.dataSource, 'open-meteo');
+  assert.strictEqual(result.locationSource, 'open-meteo');
   assert.strictEqual(callCount, 2);
 });
 
@@ -346,6 +350,8 @@ test('buildPlan creates valid plan with members', () => {
   assert.ok(result.plan.summary.includes('Bengaluru'));
   assert.strictEqual(result.plan.members.length, profile.members.length);
   assert.ok(result.validation.valid);
+  assert.match(result.plan.sustainableAlternatives[0], /tailpipe emissions/i);
+  assert.match(result.plan.indoorAirHacks[0], /particle infiltration/i);
 });
 
 test('makeFallbackPlan creates plan for all member types', () => {
@@ -354,6 +360,8 @@ test('makeFallbackPlan creates plan for all member types', () => {
   assert.ok(plan.summary.includes('Delhi'));
   assert.strictEqual(plan.members.length, profile.members.length);
   assert.ok(plan.members.every(m => m.periods.morning && m.periods.afternoon && m.periods.evening));
+  assert.match(plan.sustainableAlternatives[0], /emissions per passenger/i);
+  assert.match(plan.indoorAirHacks[0], /particle infiltration/i);
 });
 
 test('makeFallbackPlan handles null AQI', () => {
@@ -393,13 +401,20 @@ test('toPublicPlanResponse strips internal fields', () => {
   const fallback = makeFallbackPlan('Bengaluru', profile, { aqi: 160, pm25: 70, forecast: [] });
   const publicResult = toPublicPlanResponse({
     plan: fallback, source: 'fallback',
-    airQuality: { aqi: 160, pm25: 70, forecast: [] },
+    airQuality: {
+      aqi: 160, pm25: 70, pm10: 90, source: 'open-meteo',
+      timestamp: '2026-01-01T10:00', timezone: 'Asia/Kolkata',
+      locationSource: 'open-meteo', forecast: [],
+    },
     geminiDisabled: true, overrides: [],
   });
   const serialized = JSON.stringify(publicResult);
   assert.doesNotMatch(serialized, /vulnerabilityScore/);
   assert.strictEqual(publicResult.plan.members.length, profile.members.length);
   assert.ok(typeof publicResult.airQuality.aqi === 'number');
+  assert.equal(publicResult.airQuality.source, 'open-meteo');
+  assert.equal(publicResult.airQuality.timestamp, '2026-01-01T10:00');
+  assert.equal(publicResult.airQuality.timezone, 'Asia/Kolkata');
 });
 
 test('answerQuestion handles medical questions safely', () => {

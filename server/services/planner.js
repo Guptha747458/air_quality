@@ -144,8 +144,8 @@ function periodPlan(member, airQuality, profile, period = 'morning') {
     outdoorWork: profile.outdoorWork,
   });
   const impact = outdoor
-    ? 'Outdoor activity may add exposure; limit it to 30 minutes in a low-traffic area.'
-    : 'Indoor activity avoids outdoor exposure and lowers emissions.';
+    ? 'Outdoor activity can increase exposure to traffic particles; choose a low-traffic route and limit exertion.'
+    : 'An indoor alternative reduces time in polluted outdoor air; avoid indoor smoke and use filtration if available.';
   return {
     activity: outdoor
       ? (period === 'morning'
@@ -206,16 +206,16 @@ export function buildPlan(location, profile, airQuality, config) {
     summary: `Daily plan for ${location} based on ${airQuality?.aqi == null ? 'AQI unavailable' : `AQI ${airQuality.aqi}`}.`,
     members: planMembers,
     indoorAirHacks: [
-      'Keep windows closed when AQI exceeds 100.',
-      'Run a HEAP purifier in sleeping areas.',
-      'Avoid incense, candles, and open-flame cooking when AQI exceeds 100.',
-      'Maintain indoor humidity between 30% and 50%.',
+      'Close windows when outdoor AQI is high to reduce particle infiltration; ventilate during cleaner periods.',
+      'Use a properly sized HEPA purifier to filter airborne particles in occupied rooms.',
+      'Avoid incense, candles, and open-flame cooking to prevent adding smoke and particles indoors.',
+      'Use a kitchen exhaust vent while cooking to remove pollutants at their source.',
     ],
     sustainableAlternatives: [
-      'Use shared transport or public bus instead of solo driving.',
-      'Switch to electric or LPG cooking if wood or charcoal is used.',
-      'Reduce biomass burning where possible.',
-      'Prefer electric heating over biomass or coal.',
+      'Choose a bus, train, or carpool instead of solo driving to reduce tailpipe emissions per passenger.',
+      'Replace wood or charcoal cooking with electric cooking where practical to avoid on-site combustion smoke.',
+      'Avoid burning biomass where possible; it releases fine particles into local air.',
+      'Prefer efficient electric heating over coal or biomass where the electricity supply allows, reducing on-site combustion emissions.',
     ],
   };
 
@@ -247,8 +247,15 @@ export function makeFallbackPlan(location, profile, airQuality) {
       };
       return { id: member.id, label: member.label, vulnerable: member.vulnerable, vulnerabilityScore: member.vulnerabilityScore, periods };
     }),
-    indoorAirHacks: ['Keep windows closed when AQI exceeds 100.', 'Run a purifier if available.'],
-    sustainableAlternatives: ['Use shared transport.', 'Switch to cleaner cooking fuel.'],
+    indoorAirHacks: [
+      'Close windows when outdoor AQI is high to reduce particle infiltration.',
+      'Run a purifier if available to filter airborne particles.',
+      'Avoid incense, candles, and open-flame cooking to limit indoor smoke.',
+    ],
+    sustainableAlternatives: [
+      'Choose shared transport to reduce tailpipe emissions per passenger.',
+      'Replace wood or charcoal cooking with electric cooking where practical to avoid on-site combustion smoke.',
+    ],
   };
 }
 
@@ -325,7 +332,10 @@ export function toPublicPlanResponse(result) {
       aqi: air.aqi ?? null,
       pm25: air.pm25 ?? null,
       pm10: air.pm10 ?? null,
+      source: air.dataSource || air.source || 'fallback',
       timestamp: air.timestamp || null,
+      timezone: air.timezone || null,
+      locationSource: air.locationSource || air.location?.source || null,
       forecast: (air.forecast || []).slice(0, 24),
       location: air.location || null,
     },
@@ -347,7 +357,7 @@ export async function generatePlan(location, profile, airQuality, config) {
     if (!geminiEnabled(config)) {
       throw new Error('Gemini disabled');
     }
-    const prompt = `Create a valid daily-plan JSON object for ${location}. Profile: ${JSON.stringify(profile)}. Live conditions: ${JSON.stringify(airQuality)}. Include summary, members, indoorAirHacks, and sustainableAlternatives. For every member include morning, afternoon, and evening objects with activity, outdoor(boolean), exertion(none/light/moderate/high), durationMinutes, reason, indoorAlternative, source="llm". Never recommend outdoor activity with AQI above 150 or for vulnerable members above 100.`;
+    const prompt = `Create a valid daily-plan JSON object for ${location}. Profile: ${JSON.stringify(profile)}. Live conditions: ${JSON.stringify(airQuality)}. Include summary, members, indoorAirHacks, and sustainableAlternatives. For every member include morning, afternoon, and evening objects with activity, outdoor(boolean), exertion(none/light/moderate/high), durationMinutes, reason, indoorAlternative, source="llm". Give each routine a clear reason tied to the live air data or household profile. Make every indoorAirHacks and sustainableAlternatives string an actionable recommendation with a brief explanation of its expected air-quality, exposure, or emissions impact. Do not invent quantified benefits. Never recommend outdoor activity with AQI above 150 or for vulnerable members above 100.`;
     plan = await callGemini(config, 'Return JSON only.', prompt);
     const validation = validatePlanOutput(plan);
     if (!validation.valid) throw new Error(validation.issues.join('; '));
